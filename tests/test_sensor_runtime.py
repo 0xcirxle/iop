@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 
 from motor_fault.app import MonitorConfigurationError, MotorFaultMonitor
@@ -41,11 +39,7 @@ def test_serial_sensor_reader_reads_uart_and_usb_ports(monkeypatch):
         }
         return connection
 
-    monkeypatch.setattr(
-        sensors_module,
-        "serial",
-        SimpleNamespace(Serial=fake_serial_ctor),
-    )
+    monkeypatch.setattr(sensors_module, "LenientSerial", fake_serial_ctor)
 
     config = AppConfig(
         sensor_ports={

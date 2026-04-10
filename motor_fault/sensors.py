@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import time
 from dataclasses import dataclass
 from typing import Dict, Optional
@@ -12,6 +13,34 @@ try:
     import serial  # type: ignore
 except ImportError:  # pragma: no cover - optional on non-Pi machines
     serial = None
+
+
+MODEM_CONTROL_IGNORED_ERRNOS = {
+    errno.EINVAL,
+    errno.ENOTTY,
+    errno.EIO,
+}
+
+
+if serial is not None:
+    class LenientSerial(serial.Serial):
+        """Ignore modem-control line errors on UARTs that only expose TX/RX."""
+
+        def _update_rts_state(self):
+            try:
+                super()._update_rts_state()
+            except OSError as exc:
+                if exc.errno not in MODEM_CONTROL_IGNORED_ERRNOS:
+                    raise
+
+        def _update_dtr_state(self):
+            try:
+                super()._update_dtr_state()
+            except OSError as exc:
+                if exc.errno not in MODEM_CONTROL_IGNORED_ERRNOS:
+                    raise
+else:  # pragma: no cover - optional on non-Pi machines
+    LenientSerial = None
 
 
 def parse_sensor_value(raw: str) -> Optional[float]:
@@ -53,7 +82,7 @@ class SerialSensorReader:
                 "No sensor ports are configured. Set at least one of I1_PORT, I2_PORT, or I3_PORT."
             )
         for name, port in self.config.sensor_ports.items():
-            self.connections[name] = serial.Serial(
+            self.connections[name] = LenientSerial(
                 port=port,
                 baudrate=self.config.baud_rate,
                 timeout=self.config.serial_timeout,
