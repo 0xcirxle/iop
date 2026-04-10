@@ -8,5 +8,5 @@ from motor_fault.cli import main
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
-        sys.argv.extend(["test-sensors", "--samples", "5"])
+        sys.argv.extend(["test-sensors", "--live"])
     raise SystemExit(main())

@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 
 from .app import MonitorConfigurationError, MotorFaultMonitor, configure_logging
 from .config import AppConfig
 from .predictor import MotorFaultPredictor
-from .sensors import SensorReadError, build_sensor_reader
+from .sensors import SensorReadError, build_sensor_reader, parse_sensor_value
 
 
 def _cmd_predict(args: argparse.Namespace) -> int:
@@ -33,6 +34,12 @@ def _cmd_test_sensors(args: argparse.Namespace) -> int:
     reader.open()
     failures = 0
     try:
+        if args.live:
+            print("Streaming live serial data. Press Ctrl+C to stop.", file=sys.stderr)
+            for name, port in config.sensor_ports.items():
+                print(f"listening on {name}: {port}", file=sys.stderr)
+            _stream_live_sensor_data(reader, poll_timeout=args.poll_timeout)
+            return 0
         for index in range(args.samples):
             try:
                 sample = reader.read_currents()
@@ -40,9 +47,71 @@ def _cmd_test_sensors(args: argparse.Namespace) -> int:
             except SensorReadError as exc:
                 failures += 1
                 print(f"sample {index + 1}: ERROR: {exc}", file=sys.stderr)
+    except KeyboardInterrupt:
+        print("\nStopped sensor stream.", file=sys.stderr)
+        return 0
     finally:
         reader.close()
     return 0 if failures == 0 else 1
+
+
+def _stream_live_sensor_data(reader, poll_timeout: float) -> None:
+    for connection in reader.connections.values():
+        connection.timeout = poll_timeout
+
+    while True:
+        for name, connection in reader.connections.items():
+            port = reader.config.sensor_ports[name]
+            try:
+                line = connection.readline().decode("ascii", errors="ignore")
+            except Exception as exc:
+                _print_live_sensor_line(
+                    name=name,
+                    port=port,
+                    raw="",
+                    value=None,
+                    error=f"read_error={exc}",
+                )
+                continue
+
+            raw = line.strip()
+            if not raw:
+                continue
+
+            try:
+                value = parse_sensor_value(line)
+            except ValueError as exc:
+                _print_live_sensor_line(
+                    name=name,
+                    port=port,
+                    raw=raw,
+                    value=None,
+                    error=f"parse_error={exc}",
+                )
+                continue
+
+            _print_live_sensor_line(name=name, port=port, raw=raw, value=value, error=None)
+
+
+def _print_live_sensor_line(
+    *,
+    name: str,
+    port: str,
+    raw: str,
+    value: float | None,
+    error: str | None,
+) -> None:
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    if error is not None:
+        print(
+            f"{timestamp} {name} {port} raw={raw!r} {error}",
+            flush=True,
+        )
+        return
+    print(
+        f"{timestamp} {name} {port} raw={raw!r} value={value}",
+        flush=True,
+    )
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -82,6 +151,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read raw values from the configured serial sensors",
     )
     test_sensors.add_argument("--samples", default=3, type=int)
+    test_sensors.add_argument(
+        "--live",
+        action="store_true",
+        help="Stream raw serial lines as they arrive",
+    )
+    test_sensors.add_argument(
+        "--poll-timeout",
+        default=0.2,
+        type=float,
+        help="Per-port read timeout while streaming live serial data",
+    )
     test_sensors.set_defaults(func=_cmd_test_sensors)
 
     run = subparsers.add_parser("run", help="Run the monitor")
