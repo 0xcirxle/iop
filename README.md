@@ -46,36 +46,22 @@ Key files:
 - `requirements-rpi.txt`
 - `tests/`
 
-## 3. Deployment Modes Supported
+## 3. Serial Wiring Supported
 
-The code supports two hardware connection styles.
+The deployment path is now intentionally simpler:
 
-### Option A: `multiplexed_uart`
+- one sensor per serial device
+- no GPIO-based multiplexing
+- no reset-pin switching logic
 
-Use this when:
+For the current setup, use:
 
-- all three sensors share one Raspberry Pi UART line
-- you enable one sensor at a time using GPIO reset pins
+- `I1` on the Raspberry Pi UART path, usually `/dev/serial0`
+- `I2` on the first USB-TTL adapter, usually `/dev/ttyUSB0`
 
-This is the mode your earlier README example was based on.
+Later, when you add the third sensor, connect it the same way:
 
-You will need:
-
-- Raspberry Pi UART enabled
-- one UART receive path
-- three GPIO pins connected to the sensors' reset/enable logic
-
-### Option B: `multi_usb`
-
-Use this when:
-
-- each sensor has its own USB-to-UART adapter
-- each sensor appears as a separate serial port such as:
-  - `/dev/ttyUSB0`
-  - `/dev/ttyUSB1`
-  - `/dev/ttyUSB2`
-
-This mode is usually simpler to debug because each sensor is independent.
+- `I3` on the next USB-TTL adapter, usually `/dev/ttyUSB1`
 
 ## 4. Hardware You Need
 
@@ -84,7 +70,7 @@ Before deployment, make sure you have:
 - Raspberry Pi with Raspberry Pi OS
 - microSD card with OS installed
 - stable power supply for Raspberry Pi
-- 3 current sensors
+- 2 current sensors for the current validation run
 - motor setup with 3 measurable phase currents
 - jumper wires
 - common ground where required by your hardware setup
@@ -92,8 +78,9 @@ Before deployment, make sure you have:
 
 Depending on your setup, also prepare:
 
-- USB-to-UART converters for `multi_usb`, or
-- direct Raspberry Pi UART plus GPIO control wiring for `multiplexed_uart`
+- Raspberry Pi UART enabled for the first sensor
+- one USB-to-TTL adapter for the second sensor
+- another USB-to-TTL adapter later when you add the third sensor
 
 ## 5. Step-By-Step Deployment Guide
 
@@ -106,7 +93,7 @@ Move this project folder to the Pi.
 Examples:
 
 ```bash
-scp -r Motor_fault_predictions pi@<RASPBERRY_PI_IP>:/home/pi/
+scp -r Motor_fault_IOP pi@<RASPBERRY_PI_IP>:/home/pi/
 ```
 
 or clone it using git if the repository is hosted.
@@ -115,7 +102,7 @@ Then log into the Pi:
 
 ```bash
 ssh pi@<RASPBERRY_PI_IP>
-cd /home/pi/Motor_fault_predictions
+cd /home/pi/Motor_fault_IOP
 ```
 
 ### Step 2: Update the Raspberry Pi
@@ -137,20 +124,17 @@ sudo apt install -y python3 python3-pip python3-venv
 
 If your serial devices need additional support packages, keep the normal Raspberry Pi serial stack enabled.
 
-### Step 4: Decide Which Wiring Mode You Are Using
+### Step 4: Confirm the Serial Device Mapping
 
-Choose one mode before editing variables:
+For the current two-sensor setup, keep the phase mapping:
 
-- choose `multiplexed_uart` if the 3 sensors share one UART and are selected one at a time using GPIO reset pins
-- choose `multi_usb` if each sensor is connected through its own USB serial adapter
+- `I1` -> Raspberry Pi UART, usually `/dev/serial0`
+- `I2` -> USB-TTL adapter, usually `/dev/ttyUSB0`
+- `I3` -> leave unconfigured for now
 
-This choice changes:
+This keeps the wiring simple and matches the current code defaults.
 
-- the wiring
-- the variables you must edit
-- how sensor debugging is performed
-
-### Step 5: If Using `multiplexed_uart`, Enable UART on the Pi
+### Step 5: Enable UART on the Pi
 
 Run:
 
@@ -178,21 +162,10 @@ After reboot, log in again and return to the project folder.
 
 The exact wiring depends on your sensor module and interface board, but the deployment logic is:
 
-For `multiplexed_uart`:
-
-- all sensors share the same UART data path used by the Pi
-- only one sensor should be enabled at a time
-- three Raspberry Pi GPIO pins control which sensor is active
-- the reset/enable pins must match the values you set in `.env`
-
-For `multi_usb`:
-
-- each sensor connects to a separate USB-to-UART adapter
-- each adapter appears as a separate device path
-- you will map each physical phase to:
-  - `I1`
-  - `I2`
-  - `I3`
+- connect the first sensor to the Pi UART receive path used as `I1`
+- connect the second sensor through the USB-TTL adapter used as `I2`
+- keep a common ground where your hardware requires it
+- leave `I3` disconnected for now
 
 Important deployment rule:
 
@@ -233,7 +206,6 @@ This installs:
 - `requests`
 - `pyserial`
 - `pytest`
-- `RPi.GPIO`
 
 ### Step 9: Create Your Deployment Variables File
 
@@ -253,28 +225,15 @@ nano .env
 
 Below is what each variable means.
 
-#### Core mode selection
+#### Serial settings
 
 ```bash
-SENSOR_MODE=multiplexed_uart
-```
-
-Use:
-
-- `multiplexed_uart` for shared UART + GPIO selection
-- `multi_usb` for three separate serial ports
-
-#### UART settings
-
-```bash
-UART_PORT=/dev/serial0
 BAUD_RATE=9600
 SERIAL_TIMEOUT=1.0
 ```
 
 Use these for:
 
-- UART port name
 - serial baud rate
 - read timeout
 
@@ -293,27 +252,21 @@ Why `15` seconds:
 - ThingSpeak free tier typically requires about 15 seconds between uploads
 - it is a safe default for cloud logging
 
-#### GPIO pin variables for `multiplexed_uart`
+#### Serial port variables
 
 ```bash
-I1_RST_PIN=17
-I2_RST_PIN=27
-I3_RST_PIN=22
+I1_PORT=/dev/serial0
+I2_PORT=/dev/ttyUSB0
+I3_PORT=
 ```
 
-These must match the Raspberry Pi GPIO pins physically connected to the enable/reset lines for the three sensors.
+These should match the actual serial devices on your Raspberry Pi.
 
-If your wiring uses different GPIO pins, replace these values.
+For the current validation run:
 
-#### Serial port variables for `multi_usb`
-
-```bash
-I1_PORT=/dev/ttyUSB0
-I2_PORT=/dev/ttyUSB1
-I3_PORT=/dev/ttyUSB2
-```
-
-These should match the actual USB serial devices on your Raspberry Pi.
+- keep `I1_PORT=/dev/serial0`
+- keep `I2_PORT=/dev/ttyUSB0`
+- leave `I3_PORT` empty until the third sensor is added
 
 To check connected serial devices:
 
@@ -387,16 +340,11 @@ If this step fails, do not move to hardware testing yet. Fix the Python environm
 
 ### Step 14: Check That the Pi Can See the Serial Devices
 
-For `multi_usb`:
-
-```bash
-ls /dev/ttyUSB*
-```
-
-For `multiplexed_uart`:
+Run:
 
 ```bash
 ls -l /dev/serial0
+ls /dev/ttyUSB*
 ```
 
 If your expected serial devices are missing:
@@ -420,14 +368,14 @@ This reads and prints raw current values without running the full monitoring loo
 
 What you want to confirm:
 
-- all three channels return values
+- the two configured channels return values
 - the values are not empty
 - the values are not random garbage text
 - the phase-to-sensor mapping is correct
 
 If the motor is off, values may be close to zero.
 
-If the motor is on, you should see meaningful current readings for all three phases.
+If the motor is on, you should see meaningful current readings for the connected phases.
 
 ### Step 16: Troubleshoot Sensor Read Problems If Needed
 
@@ -447,22 +395,19 @@ If you get unreadable characters:
 - check serial line wiring
 - check whether the sensor output format matches the expected ASCII numeric format
 
-If only one sensor works in `multiplexed_uart` mode:
+If only one sensor works:
 
-- check `I1_RST_PIN`, `I2_RST_PIN`, `I3_RST_PIN`
-- check whether only one enable/reset path is actually switching
-- check that each physical sensor is connected to the correct gate/reset line
-
-If only one sensor works in `multi_usb` mode:
-
-- check each `/dev/ttyUSBx` device one by one
+- check `/dev/serial0` and `/dev/ttyUSB0` one by one
 - swap adapters or cables to isolate whether the issue is the sensor or the USB interface
+- confirm the sensor still streams plain ASCII numeric values
 
-Only proceed after all three currents can be read reliably.
+Only proceed to model inference after all three currents can be read reliably.
 
-### Step 17: Run One Full Inference Cycle
+### Step 17: Add The Third Sensor Before Running Inference
 
-Once raw sensor reading works, run:
+The current code intentionally keeps raw sensor validation separate from model inference.
+
+Once the third sensor is connected and `I3_PORT` is set, run:
 
 ```bash
 python motor_monitor.py run --once

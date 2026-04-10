@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 
-from .app import MotorFaultMonitor, configure_logging
+from .app import MonitorConfigurationError, MotorFaultMonitor, configure_logging
 from .config import AppConfig
 from .predictor import MotorFaultPredictor
 from .sensors import SensorReadError, build_sensor_reader
@@ -47,7 +47,11 @@ def _cmd_test_sensors(args: argparse.Namespace) -> int:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     configure_logging(verbose=args.verbose)
-    monitor = MotorFaultMonitor(AppConfig())
+    try:
+        monitor = MotorFaultMonitor(AppConfig())
+    except MonitorConfigurationError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     monitor.open()
     try:
         if args.once:
@@ -64,7 +68,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="3-phase motor fault monitor")
+    parser = argparse.ArgumentParser(description="Motor fault monitor and sensor tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     predict = subparsers.add_parser("predict", help="Run model inference on 3 currents")
@@ -73,7 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
     predict.add_argument("--i3", required=True, type=float)
     predict.set_defaults(func=_cmd_predict)
 
-    test_sensors = subparsers.add_parser("test-sensors", help="Read raw sensor values")
+    test_sensors = subparsers.add_parser(
+        "test-sensors",
+        help="Read raw values from the configured serial sensors",
+    )
     test_sensors.add_argument("--samples", default=3, type=int)
     test_sensors.set_defaults(func=_cmd_test_sensors)
 

@@ -13,11 +13,6 @@ try:
 except ImportError:  # pragma: no cover - optional on non-Pi machines
     serial = None
 
-try:
-    import RPi.GPIO as GPIO  # type: ignore
-except ImportError:  # pragma: no cover - optional on non-Pi machines
-    GPIO = None
-
 
 def parse_sensor_value(raw: str) -> Optional[float]:
     raw = raw.strip()
@@ -43,8 +38,8 @@ def _fallback_current(config: AppConfig) -> float:
     return float(config.sensor_read_fallback_value)
 
 
-class MultiUSBSensorReader:
-    """Reads one sensor per serial device."""
+class SerialSensorReader:
+    """Reads one sensor per configured serial device."""
 
     def __init__(self, config: AppConfig):
         if serial is None:
@@ -53,6 +48,10 @@ class MultiUSBSensorReader:
         self.connections: Dict[str, object] = {}
 
     def open(self) -> None:
+        if not self.config.sensor_ports:
+            raise RuntimeError(
+                "No sensor ports are configured. Set at least one of I1_PORT, I2_PORT, or I3_PORT."
+            )
         for name, port in self.config.sensor_ports.items():
             self.connections[name] = serial.Serial(
                 port=port,
@@ -69,78 +68,16 @@ class MultiUSBSensorReader:
     def read_currents(self) -> CurrentSample:
         values = {}
         for name, connection in self.connections.items():
-            connection.reset_input_buffer()
-            line = connection.readline().decode("ascii", errors="ignore")
-            values[name] = parse_sensor_value(line)
-        if any(value is None for value in values.values()):
-            if self.config.sensor_read_fallback_enabled:
-                values = {
-                    name: _fallback_current(self.config) if value is None else float(value)
-                    for name, value in values.items()
-                }
-                return CurrentSample(currents=values, timestamp=time.time())
-            raise SensorReadError(
-                "Incomplete sensor reading from multi_usb setup. "
-                f"Received: {values}. Check sensor power, USB serial mapping, "
-                "and whether each sensor is streaming valid ASCII current values."
-            )
+            values[name] = self._read_sensor(name, connection)
         return CurrentSample(currents=values, timestamp=time.time())
 
-
-class MultiplexedUARTSensorReader:
-    """Reads three sensors sharing one UART by gating each sensor with RST pins."""
-
-    def __init__(self, config: AppConfig):
-        if serial is None:
-            raise RuntimeError("pyserial is required to use the sensor readers")
-        if GPIO is None:
-            raise RuntimeError("RPi.GPIO is required for multiplexed UART mode")
-        self.config = config
-        self.connection = None
-
-    def open(self) -> None:
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        for pin in self.config.rst_pins.values():
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, GPIO.HIGH)
-        self.connection = serial.Serial(
-            port=self.config.uart_port,
-            baudrate=self.config.baud_rate,
-            timeout=self.config.serial_timeout,
-        )
-        self.connection.reset_input_buffer()
-        time.sleep(self.config.warmup_seconds)
-
-    def close(self) -> None:
-        if self.connection is not None:
-            self.connection.close()
-        if GPIO is not None:
-            GPIO.cleanup()
-
-    def read_currents(self) -> CurrentSample:
-        values = {}
-        try:
-            for name in self.config.ordered_sensor_names():
-                values[name] = self._read_sensor(name)
-        finally:
-            for pin in self.config.rst_pins.values():
-                GPIO.output(pin, GPIO.HIGH)
-        return CurrentSample(currents=values, timestamp=time.time())
-
-    def _read_sensor(self, name: str) -> float:
-        for pin in self.config.rst_pins.values():
-            GPIO.output(pin, GPIO.LOW)
-        time.sleep(self.config.disable_delay_seconds)
-        GPIO.output(self.config.rst_pins[name], GPIO.HIGH)
-        time.sleep(self.config.settle_delay_seconds)
-        self.connection.reset_input_buffer()
-        time.sleep(self.config.buffer_delay_seconds)
-
+    def _read_sensor(self, name: str, connection: object) -> float:
+        port = self.config.sensor_ports[name]
+        connection.reset_input_buffer()
         last_error = None
         raw_samples = []
         for _ in range(self.config.read_attempts):
-            line = self.connection.readline().decode("ascii", errors="ignore")
+            line = connection.readline().decode("ascii", errors="ignore")
             raw_samples.append(line.strip())
             try:
                 value = parse_sensor_value(line)
@@ -150,11 +87,10 @@ class MultiplexedUARTSensorReader:
             if value is not None:
                 return value
         hint = (
-            f"No valid serial data received for {name} on {self.config.uart_port} "
-            f"after {self.config.read_attempts} attempts using RST pin "
-            f"{self.config.rst_pins[name]}. "
-            "Check sensor power, GND, TX-to-RX wiring, UART enable, and the "
-            "RST/enable wiring for this sensor."
+            f"No valid serial data received for {name} on {port} "
+            f"after {self.config.read_attempts} attempts. "
+            "Check sensor power, GND, TX-to-RX wiring, port mapping, and the "
+            "sensor output format."
         )
         if any(raw_samples):
             hint += f" Raw samples: {raw_samples!r}."
@@ -166,10 +102,4 @@ class MultiplexedUARTSensorReader:
 
 
 def build_sensor_reader(config: AppConfig):
-    if config.sensor_mode == "multi_usb":
-        return MultiUSBSensorReader(config)
-    if config.sensor_mode == "multiplexed_uart":
-        return MultiplexedUARTSensorReader(config)
-    raise ValueError(
-        "Unsupported SENSOR_MODE. Use 'multiplexed_uart' or 'multi_usb'."
-    )
+    return SerialSensorReader(config)

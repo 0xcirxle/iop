@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 
-DEFAULT_RST_PINS = {"I1": 17, "I2": 27, "I3": 22}
 DEFAULT_SENSOR_PORTS = {
-    "I1": "/dev/ttyUSB0",
-    "I2": "/dev/ttyUSB1",
-    "I3": "/dev/ttyUSB2",
+    "I1": "/dev/serial0",
+    "I2": "/dev/ttyUSB0",
+    "I3": "",
 }
+SENSOR_ORDER = ("I1", "I2", "I3")
 
 
 def _load_env_file() -> None:
@@ -55,6 +55,20 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _build_sensor_ports() -> Dict[str, str]:
+    ports: Dict[str, str] = {}
+    for name in SENSOR_ORDER:
+        default = DEFAULT_SENSOR_PORTS[name]
+        raw_value = os.getenv(f"{name}_PORT")
+        if raw_value is None and name == "I1":
+            # Keep supporting the older UART_PORT variable for the first sensor.
+            raw_value = os.getenv("UART_PORT")
+        port = (raw_value if raw_value is not None else default).strip()
+        if port:
+            ports[name] = port
+    return ports
+
+
 def _detect_model_dir() -> Path:
     root = Path(__file__).resolve().parent.parent
     candidates = (
@@ -70,33 +84,17 @@ def _detect_model_dir() -> Path:
 
 @dataclass(frozen=True)
 class AppConfig:
-    sensor_mode: str = os.getenv("SENSOR_MODE", "multiplexed_uart")
-    uart_port: str = os.getenv("UART_PORT", "/dev/serial0")
     baud_rate: int = _env_int("BAUD_RATE", 9600)
     serial_timeout: float = _env_float("SERIAL_TIMEOUT", 1.0)
     sample_interval: float = _env_float("SAMPLE_INTERVAL", 15.0)
     warmup_seconds: float = _env_float("SENSOR_WARMUP_SECONDS", 0.1)
-    disable_delay_seconds: float = _env_float("SENSOR_DISABLE_DELAY_SECONDS", 0.05)
-    settle_delay_seconds: float = _env_float("SENSOR_SETTLE_DELAY_SECONDS", 0.1)
-    buffer_delay_seconds: float = _env_float("SENSOR_BUFFER_DELAY_SECONDS", 0.2)
     read_attempts: int = _env_int("SENSOR_READ_ATTEMPTS", 5)
     sensor_read_fallback_enabled: bool = _env_bool(
         "SENSOR_READ_FALLBACK_ENABLED",
         False,
     )
     sensor_read_fallback_value: float = _env_float("SENSOR_READ_FALLBACK_VALUE", 0.0)
-    sensor_ports: Dict[str, str] = field(
-        default_factory=lambda: {
-            name: os.getenv(f"{name}_PORT", default)
-            for name, default in DEFAULT_SENSOR_PORTS.items()
-        }
-    )
-    rst_pins: Dict[str, int] = field(
-        default_factory=lambda: {
-            name: _env_int(f"{name}_RST_PIN", default)
-            for name, default in DEFAULT_RST_PINS.items()
-        }
-    )
+    sensor_ports: Dict[str, str] = field(default_factory=_build_sensor_ports)
     model_dir: Path = field(default_factory=_detect_model_dir)
     thingspeak_api_key: str = os.getenv(
         "THINGSPEAK_API_KEY",
@@ -108,5 +106,11 @@ class AppConfig:
     )
     thingspeak_enabled: bool = os.getenv("THINGSPEAK_ENABLED", "false").lower() == "true"
 
-    def ordered_sensor_names(self) -> Tuple[str, str, str]:
-        return ("I1", "I2", "I3")
+    def ordered_sensor_names(self) -> Tuple[str, ...]:
+        return tuple(name for name in SENSOR_ORDER if name in self.sensor_ports)
+
+    def missing_sensor_names(
+        self,
+        required: Tuple[str, ...] = SENSOR_ORDER,
+    ) -> Tuple[str, ...]:
+        return tuple(name for name in required if name not in self.sensor_ports)

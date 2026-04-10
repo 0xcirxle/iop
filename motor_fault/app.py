@@ -14,6 +14,7 @@ from .sensors import CurrentSample, SensorReadError, build_sensor_reader
 
 
 LOGGER = logging.getLogger("motor_fault")
+REQUIRED_PREDICTION_SENSORS = ("I1", "I2", "I3")
 
 
 def configure_logging(verbose: bool = False) -> None:
@@ -23,11 +24,22 @@ def configure_logging(verbose: bool = False) -> None:
     )
 
 
+class MonitorConfigurationError(RuntimeError):
+    """Raised when monitor mode is used without the required sensor inputs."""
+
+
 class MotorFaultMonitor:
     """Coordinates sensors, model inference, and optional cloud upload."""
 
     def __init__(self, config: AppConfig):
         self.config = config
+        missing = self.config.missing_sensor_names(REQUIRED_PREDICTION_SENSORS)
+        if missing:
+            raise MonitorConfigurationError(
+                "Full monitor mode still requires three configured sensors "
+                f"({', '.join(REQUIRED_PREDICTION_SENSORS)}). Missing: {', '.join(missing)}. "
+                "Use `python test_sensors.py` to validate the currently connected sensors."
+            )
         self.reader = build_sensor_reader(config)
         self.predictor = MotorFaultPredictor(config.model_dir)
         self.uploader: Optional[ThingSpeakUploader] = None

@@ -25,3 +25,14 @@ def test_parse_sensor_value_returns_none_for_empty_string():
 def test_fallback_current_uses_config_value():
     config = AppConfig(sensor_read_fallback_enabled=True, sensor_read_fallback_value=0.0)
     assert _fallback_current(config) == pytest.approx(0.0)
+
+
+def test_ordered_sensor_names_only_returns_configured_ports():
+    config = AppConfig(
+        sensor_ports={
+            "I1": "/dev/serial0",
+            "I2": "/dev/ttyUSB0",
+        }
+    )
+    assert config.ordered_sensor_names() == ("I1", "I2")
+    assert config.missing_sensor_names() == ("I3",)
