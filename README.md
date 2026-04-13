@@ -58,9 +58,6 @@ For the current setup, use:
 
 - `I1` on the Raspberry Pi UART path, usually `/dev/serial0`
 - `I2` on the first USB-TTL adapter, usually `/dev/ttyUSB0`
-
-Later, when you add the third sensor, connect it the same way:
-
 - `I3` on the next USB-TTL adapter, usually `/dev/ttyUSB1`
 
 ## 4. Hardware You Need
@@ -70,17 +67,17 @@ Before deployment, make sure you have:
 - Raspberry Pi with Raspberry Pi OS
 - microSD card with OS installed
 - stable power supply for Raspberry Pi
-- 2 current sensors for the current validation run
+- 3 current sensors
 - motor setup with 3 measurable phase currents
 - jumper wires
 - common ground where required by your hardware setup
 - internet connection if you want ThingSpeak upload
 
-Depending on your setup, also prepare:
+For this repository's default wiring, also prepare:
 
 - Raspberry Pi UART enabled for the first sensor
 - one USB-to-TTL adapter for the second sensor
-- another USB-to-TTL adapter later when you add the third sensor
+- another USB-to-TTL adapter for the third sensor
 
 ## 5. Step-By-Step Deployment Guide
 
@@ -126,11 +123,11 @@ If your serial devices need additional support packages, keep the normal Raspber
 
 ### Step 4: Confirm the Serial Device Mapping
 
-For the current two-sensor setup, keep the phase mapping:
+For the current three-sensor setup, keep the phase mapping:
 
 - `I1` -> Raspberry Pi UART, usually `/dev/serial0`
 - `I2` -> USB-TTL adapter, usually `/dev/ttyUSB0`
-- `I3` -> leave unconfigured for now
+- `I3` -> second USB-TTL adapter, usually `/dev/ttyUSB1`
 
 This keeps the wiring simple and matches the current code defaults.
 
@@ -164,8 +161,8 @@ The exact wiring depends on your sensor module and interface board, but the depl
 
 - connect the first sensor to the Pi UART receive path used as `I1`
 - connect the second sensor through the USB-TTL adapter used as `I2`
+- connect the third sensor through the second USB-TTL adapter used as `I3`
 - keep a common ground where your hardware requires it
-- leave `I3` disconnected for now
 
 Important deployment rule:
 
@@ -242,31 +239,28 @@ Normally keep `BAUD_RATE=9600` unless your hardware requires something else.
 #### Sample timing
 
 ```bash
-SAMPLE_INTERVAL=15
+SAMPLE_INTERVAL=1
 ```
 
-This is how often the monitor performs one inference cycle.
+This is how often the monitor performs one inference cycle for live on-screen monitoring.
 
-Why `15` seconds:
-
-- ThingSpeak free tier typically requires about 15 seconds between uploads
-- it is a safe default for cloud logging
+If you later enable ThingSpeak, you can increase this value to reduce upload frequency.
 
 #### Serial port variables
 
 ```bash
 I1_PORT=/dev/serial0
 I2_PORT=/dev/ttyUSB0
-I3_PORT=
+I3_PORT=/dev/ttyUSB1
 ```
 
 These should match the actual serial devices on your Raspberry Pi.
 
-For the current validation run:
+For the default three-sensor setup:
 
 - keep `I1_PORT=/dev/serial0`
 - keep `I2_PORT=/dev/ttyUSB0`
-- leave `I3_PORT` empty until the third sensor is added
+- keep `I3_PORT=/dev/ttyUSB1`
 
 To check connected serial devices:
 
@@ -368,14 +362,14 @@ This reads and prints raw current values without running the full monitoring loo
 
 What you want to confirm:
 
-- the two configured channels return values
+- all three configured channels return values
 - the values are not empty
 - the values are not random garbage text
 - the phase-to-sensor mapping is correct
 
 If the motor is off, values may be close to zero.
 
-If the motor is on, you should see meaningful current readings for the connected phases.
+If the motor is on, you should see meaningful current readings for all three phases.
 
 ### Step 16: Troubleshoot Sensor Read Problems If Needed
 
@@ -397,15 +391,13 @@ If you get unreadable characters:
 
 If only one sensor works:
 
-- check `/dev/serial0` and `/dev/ttyUSB0` one by one
+- check `/dev/serial0`, `/dev/ttyUSB0`, and `/dev/ttyUSB1` one by one
 - swap adapters or cables to isolate whether the issue is the sensor or the USB interface
 - confirm the sensor still streams plain ASCII numeric values
 
 Only proceed to model inference after all three currents can be read reliably.
 
-### Step 17: Add The Third Sensor Before Running Inference
-
-The current code intentionally keeps raw sensor validation separate from model inference.
+### Step 17: Run One Full Inference Cycle
 
 Once the third sensor is connected and `I3_PORT` is set, run:
 
@@ -432,14 +424,15 @@ What to verify:
 When the one-cycle test is good, run:
 
 ```bash
-python motor_monitor.py
+python motor_monitor.py --interval 1
 ```
 
-This starts the continuous loop using the interval from:
+This starts the continuous loop and prints each cycle on screen as:
 
-```bash
-SAMPLE_INTERVAL
-```
+- the three sensor currents
+- the four model prediction labels
+
+If you omit `--interval`, the app uses `SAMPLE_INTERVAL` from `.env`.
 
 ### Step 19: Enable ThingSpeak Only After Local Validation
 

@@ -15,6 +15,7 @@ from .sensors import CurrentSample, SensorReadError, build_sensor_reader
 
 LOGGER = logging.getLogger("motor_fault")
 REQUIRED_PREDICTION_SENSORS = ("I1", "I2", "I3")
+PREDICTION_TASK_ORDER = ("binary", "severity", "phase", "load")
 
 
 def configure_logging(verbose: bool = False) -> None:
@@ -74,7 +75,9 @@ class MotorFaultMonitor:
             started = time.time()
             try:
                 result = self.run_once()
-                LOGGER.info(json.dumps(result, ensure_ascii=True))
+                LOGGER.info(format_monitor_result(result))
+                if LOGGER.isEnabledFor(logging.DEBUG):
+                    LOGGER.debug(json.dumps(result, ensure_ascii=True))
             except SensorReadError as exc:
                 LOGGER.error("Sensor read failed: %s", exc)
             elapsed = time.time() - started
@@ -88,6 +91,7 @@ class MotorFaultMonitor:
         return {
             "timestamp": sample.timestamp,
             "currents": sample.currents,
+            "prediction_summary": build_prediction_summary(predictions),
             "predictions": {
                 task: {
                     "class_id": result.class_id,
@@ -97,3 +101,33 @@ class MotorFaultMonitor:
                 for task, result in predictions.items()
             },
         }
+
+
+def build_prediction_summary(
+    predictions: Dict[str, PredictionResult],
+) -> Dict[str, str]:
+    return {
+        task: predictions[task].label
+        for task in PREDICTION_TASK_ORDER
+        if task in predictions
+    }
+
+
+def format_monitor_result(payload: Dict[str, object]) -> str:
+    currents = payload["currents"]
+    prediction_summary = payload.get("prediction_summary", {})
+
+    current_text = " ".join(
+        f"{name}={float(currents[name]):.3f}"
+        for name in REQUIRED_PREDICTION_SENSORS
+        if name in currents
+    )
+    prediction_text = " ".join(
+        f"{task}={prediction_summary[task]}"
+        for task in PREDICTION_TASK_ORDER
+        if task in prediction_summary
+    )
+
+    if prediction_text:
+        return f"currents: {current_text} | predictions: {prediction_text}"
+    return f"currents: {current_text}"

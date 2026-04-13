@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import replace
 
 from .app import MonitorConfigurationError, MotorFaultMonitor, configure_logging
 from .config import AppConfig
@@ -116,8 +117,11 @@ def _print_live_sensor_line(
 
 def _cmd_run(args: argparse.Namespace) -> int:
     configure_logging(verbose=args.verbose)
+    config = AppConfig()
+    if args.interval is not None:
+        config = replace(config, sample_interval=args.interval)
     try:
-        monitor = MotorFaultMonitor(AppConfig())
+        monitor = MotorFaultMonitor(config)
     except MonitorConfigurationError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -166,6 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = subparsers.add_parser("run", help="Run the monitor")
     run.add_argument("--once", action="store_true", help="Run a single cycle and exit")
+    run.add_argument(
+        "--interval",
+        type=float,
+        help="Override the sampling interval in seconds for this run",
+    )
     run.add_argument("--verbose", action="store_true")
     run.set_defaults(func=_cmd_run)
     return parser

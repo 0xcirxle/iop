@@ -11,7 +11,7 @@ from typing import Dict, Tuple
 DEFAULT_SENSOR_PORTS = {
     "I1": "/dev/serial0",
     "I2": "/dev/ttyUSB0",
-    "I3": "",
+    "I3": "/dev/ttyUSB1",
 }
 SENSOR_ORDER = ("I1", "I2", "I3")
 
@@ -86,7 +86,7 @@ def _detect_model_dir() -> Path:
 class AppConfig:
     baud_rate: int = _env_int("BAUD_RATE", 9600)
     serial_timeout: float = _env_float("SERIAL_TIMEOUT", 1.0)
-    sample_interval: float = _env_float("SAMPLE_INTERVAL", 15.0)
+    sample_interval: float = _env_float("SAMPLE_INTERVAL", 1.0)
     warmup_seconds: float = _env_float("SENSOR_WARMUP_SECONDS", 0.1)
     read_attempts: int = _env_int("SENSOR_READ_ATTEMPTS", 5)
     sensor_read_fallback_enabled: bool = _env_bool(
