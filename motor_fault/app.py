@@ -42,7 +42,10 @@ class MotorFaultMonitor:
                 "Use `python test_sensors.py` to validate the currently connected sensors."
             )
         self.reader = build_sensor_reader(config)
-        self.predictor = MotorFaultPredictor(config.model_dir)
+        self.predictor = MotorFaultPredictor(
+            config.model_dir,
+            binary_labels_swapped=config.binary_labels_swapped,
+        )
         self.uploader: Optional[ThingSpeakUploader] = None
         if config.thingspeak_enabled:
             self.uploader = ThingSpeakUploader(

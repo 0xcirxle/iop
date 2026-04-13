@@ -8,3 +8,15 @@ TASK_LABELS = {
 }
 
 TASK_ORDER = ("binary", "severity", "phase", "load")
+
+
+def get_task_labels(binary_labels_swapped: bool = False):
+    if not binary_labels_swapped:
+        return TASK_LABELS
+
+    swapped = dict(TASK_LABELS)
+    swapped["binary"] = {
+        0: TASK_LABELS["binary"][1],
+        1: TASK_LABELS["binary"][0],
+    }
+    return swapped

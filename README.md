@@ -236,6 +236,14 @@ Use these for:
 
 Normally keep `BAUD_RATE=9600` unless your hardware requires something else.
 
+If your deployed binary model appears inverted relative to what you observe on the motor, you can flip only the displayed binary labels with:
+
+```bash
+BINARY_LABELS_SWAPPED=true
+```
+
+This changes the shown `Healthy`/`Faulty` text but does not alter the raw model class IDs.
+
 #### Sample timing
 
 ```bash

@@ -15,7 +15,11 @@ from .sensors import SensorReadError, build_sensor_reader, parse_sensor_value
 
 
 def _cmd_predict(args: argparse.Namespace) -> int:
-    predictor = MotorFaultPredictor(AppConfig().model_dir)
+    config = AppConfig()
+    predictor = MotorFaultPredictor(
+        config.model_dir,
+        binary_labels_swapped=config.binary_labels_swapped,
+    )
     results = predictor.predict(args.i1, args.i2, args.i3)
     payload = {
         task: {

@@ -11,7 +11,7 @@ import joblib
 import numpy as np
 
 from .features import build_feature_vector
-from .labels import TASK_LABELS, TASK_ORDER
+from .labels import TASK_ORDER, get_task_labels
 
 warnings.filterwarnings(
     "ignore",
@@ -32,8 +32,9 @@ class PredictionResult:
 class MotorFaultPredictor:
     """Loads the saved scaler and task models and runs inference."""
 
-    def __init__(self, model_dir: Path | str):
+    def __init__(self, model_dir: Path | str, binary_labels_swapped: bool = False):
         self.model_dir = Path(model_dir)
+        self.task_labels = get_task_labels(binary_labels_swapped=binary_labels_swapped)
         self.scaler = None
         self.models: Dict[str, object] = {}
         self._load()
@@ -59,7 +60,7 @@ class MotorFaultPredictor:
             results[task] = PredictionResult(
                 task=task,
                 class_id=class_id,
-                label=TASK_LABELS[task][class_id],
+                label=self.task_labels[task][class_id],
                 probabilities=probabilities,
             )
 

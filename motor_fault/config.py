@@ -89,6 +89,7 @@ class AppConfig:
     sample_interval: float = _env_float("SAMPLE_INTERVAL", 1.0)
     warmup_seconds: float = _env_float("SENSOR_WARMUP_SECONDS", 0.1)
     read_attempts: int = _env_int("SENSOR_READ_ATTEMPTS", 5)
+    binary_labels_swapped: bool = _env_bool("BINARY_LABELS_SWAPPED", False)
     sensor_read_fallback_enabled: bool = _env_bool(
         "SENSOR_READ_FALLBACK_ENABLED",
         False,
