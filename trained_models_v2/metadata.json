@@ -1,0 +1,64 @@
+{
+  "version": "v2",
+  "samples_per_cycle": 1000,
+  "sample_interval_s": 2e-05,
+  "line_frequency_hz": 50.0,
+  "train_fraction": 0.7,
+  "val_fraction": 0.15,
+  "test_fraction": 0.15,
+  "feature_names": [
+    "I1_rms",
+    "I2_rms",
+    "I3_rms",
+    "I_sum",
+    "I_mean",
+    "I_abs_max",
+    "I_abs_min",
+    "I_range",
+    "I_std",
+    "imbalance_percent",
+    "I1_to_mean",
+    "I2_to_mean",
+    "I3_to_mean",
+    "I1_minus_I2",
+    "I2_minus_I3",
+    "I3_minus_I1"
+  ],
+  "binary_labels": {
+    "0": "Healthy",
+    "1": "Faulty"
+  },
+  "severity_labels": {
+    "0": "1u",
+    "1": "3u",
+    "2": "5u"
+  },
+  "phase_labels": {
+    "0": "Phase 1",
+    "1": "Phase 2",
+    "2": "Phase 3"
+  },
+  "load_labels": {
+    "0": "No Load",
+    "1": "Half Load",
+    "2": "Full Load"
+  },
+  "results": {
+    "binary": {
+      "val": 0.8531481481481481,
+      "test": 0.8168518518518518
+    },
+    "load": {
+      "val": 1.0,
+      "test": 1.0
+    },
+    "severity": {
+      "val": 0.722716049382716,
+      "test": 0.6619753086419753
+    },
+    "phase": {
+      "val": 0.7612345679012346,
+      "test": 0.6995061728395062
+    }
+  }
+}

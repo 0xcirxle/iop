@@ -18,16 +18,27 @@ def _cmd_predict(args: argparse.Namespace) -> int:
     config = AppConfig()
     predictor = MotorFaultPredictor(
         config.model_dir,
-        binary_labels_swapped=config.binary_labels_swapped,
+        confidence_threshold=config.prediction_confidence_threshold,
+        max_safe_current=config.max_safe_current,
     )
     results = predictor.predict(args.i1, args.i2, args.i3)
+    current_prediction = predictor.summarize_prediction(results, args.i1, args.i2, args.i3)
     payload = {
-        task: {
-            "class_id": result.class_id,
-            "label": result.label,
-            "probabilities": result.probabilities,
-        }
-        for task, result in results.items()
+        "currents": {
+            "I1": args.i1,
+            "I2": args.i2,
+            "I3": args.i3,
+        },
+        "current_prediction": current_prediction,
+        "predictions": {
+            task: {
+                "class_id": result.class_id,
+                "label": result.label,
+                "confidence": result.confidence,
+                "probabilities": result.probabilities,
+            }
+            for task, result in results.items()
+        },
     }
     print(json.dumps(payload, indent=2, ensure_ascii=True))
     return 0
@@ -148,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Motor fault monitor and sensor tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    predict = subparsers.add_parser("predict", help="Run model inference on 3 currents")
+    predict = subparsers.add_parser("predict", help="Run V2 inference on 3 RMS currents")
     predict.add_argument("--i1", required=True, type=float)
     predict.add_argument("--i2", required=True, type=float)
     predict.add_argument("--i3", required=True, type=float)

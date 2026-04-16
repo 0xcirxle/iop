@@ -9,13 +9,12 @@ from typing import Dict, Optional
 
 from .cloud import ThingSpeakUploader
 from .config import AppConfig
-from .predictor import MotorFaultPredictor, PredictionResult
+from .predictor import MotorFaultPredictor, PredictionResult, RollingMotorDecision
 from .sensors import CurrentSample, SensorReadError, build_sensor_reader
 
 
 LOGGER = logging.getLogger("motor_fault")
 REQUIRED_PREDICTION_SENSORS = ("I1", "I2", "I3")
-PREDICTION_TASK_ORDER = ("binary", "severity", "phase", "load")
 
 
 def configure_logging(verbose: bool = False) -> None:
@@ -44,7 +43,12 @@ class MotorFaultMonitor:
         self.reader = build_sensor_reader(config)
         self.predictor = MotorFaultPredictor(
             config.model_dir,
-            binary_labels_swapped=config.binary_labels_swapped,
+            confidence_threshold=config.prediction_confidence_threshold,
+            max_safe_current=config.max_safe_current,
+        )
+        self.rolling_decision = RollingMotorDecision(
+            window_size=config.rolling_window_size,
+            fault_votes_required=config.fault_votes_required,
         )
         self.uploader: Optional[ThingSpeakUploader] = None
         if config.thingspeak_enabled:
@@ -67,7 +71,19 @@ class MotorFaultMonitor:
             sample.currents["I2"],
             sample.currents["I3"],
         )
-        payload = self._build_payload(sample, predictions)
+        current_prediction = self.predictor.summarize_prediction(
+            predictions,
+            sample.currents["I1"],
+            sample.currents["I2"],
+            sample.currents["I3"],
+        )
+        rolling_result = self.rolling_decision.update(current_prediction)
+        payload = self._build_payload(
+            sample,
+            predictions,
+            rolling_result["current_prediction"],
+            rolling_result["rolling_decision"],
+        )
         if self.uploader is not None:
             uploaded = self.uploader.upload(sample.currents, predictions)
             payload["thingspeak_uploaded"] = uploaded
@@ -90,15 +106,19 @@ class MotorFaultMonitor:
     def _build_payload(
         sample: CurrentSample,
         predictions: Dict[str, PredictionResult],
+        current_prediction: Dict[str, object],
+        rolling_decision: Dict[str, object],
     ) -> Dict[str, object]:
         return {
             "timestamp": sample.timestamp,
             "currents": sample.currents,
-            "prediction_summary": build_prediction_summary(predictions),
+            "current_prediction": current_prediction,
+            "rolling_decision": rolling_decision,
             "predictions": {
                 task: {
                     "class_id": result.class_id,
                     "label": result.label,
+                    "confidence": result.confidence,
                     "probabilities": result.probabilities,
                 }
                 for task, result in predictions.items()
@@ -106,31 +126,46 @@ class MotorFaultMonitor:
         }
 
 
-def build_prediction_summary(
-    predictions: Dict[str, PredictionResult],
-) -> Dict[str, str]:
-    return {
-        task: predictions[task].label
-        for task in PREDICTION_TASK_ORDER
-        if task in predictions
-    }
-
-
 def format_monitor_result(payload: Dict[str, object]) -> str:
     currents = payload["currents"]
-    prediction_summary = payload.get("prediction_summary", {})
-
     current_text = " ".join(
         f"{name}={float(currents[name]):.3f}"
         for name in REQUIRED_PREDICTION_SENSORS
         if name in currents
     )
-    prediction_text = " ".join(
-        f"{task}={prediction_summary[task]}"
-        for task in PREDICTION_TASK_ORDER
-        if task in prediction_summary
+    current_prediction = payload["current_prediction"]
+    rolling_decision = payload["rolling_decision"]
+
+    return (
+        f"currents: {current_text} | "
+        f"current: {format_prediction_summary(current_prediction)} | "
+        f"rolling: {format_prediction_summary(rolling_decision, include_votes=True)}"
     )
 
-    if prediction_text:
-        return f"currents: {current_text} | predictions: {prediction_text}"
-    return f"currents: {current_text}"
+
+def format_prediction_summary(
+    prediction: Dict[str, object],
+    *,
+    include_votes: bool = False,
+) -> str:
+    if prediction.get("safety_status") == "TRIP_IMMEDIATE_OVERCURRENT":
+        return "TRIP_IMMEDIATE_OVERCURRENT"
+
+    parts = [str(prediction["binary"])]
+    binary_confidence = prediction.get("binary_confidence")
+    if binary_confidence is not None and not include_votes:
+        parts[0] = f"{parts[0]}({float(binary_confidence):.2f})"
+
+    for key in ("severity", "phase", "load"):
+        value = prediction.get(key)
+        if value and value not in {"N/A", "Unknown", "Uncertain"}:
+            parts.append(str(value))
+
+    if include_votes:
+        parts.append(
+            f"[F={int(prediction.get('fault_votes', 0))} "
+            f"H={int(prediction.get('healthy_votes', 0))} "
+            f"W={int(prediction.get('window_filled', 0))}]"
+        )
+
+    return " ".join(parts)

@@ -55,6 +55,13 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_optional_float(name: str) -> float | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    return float(raw)
+
+
 def _build_sensor_ports() -> Dict[str, str]:
     ports: Dict[str, str] = {}
     for name in SENSOR_ORDER:
@@ -73,6 +80,7 @@ def _detect_model_dir() -> Path:
     root = Path(__file__).resolve().parent.parent
     candidates = (
         Path(os.getenv("MODEL_DIR", "")) if os.getenv("MODEL_DIR") else None,
+        root / "trained_models_v2",
         root / "trained_models",
         root,
     )
@@ -89,7 +97,15 @@ class AppConfig:
     sample_interval: float = _env_float("SAMPLE_INTERVAL", 1.0)
     warmup_seconds: float = _env_float("SENSOR_WARMUP_SECONDS", 0.1)
     read_attempts: int = _env_int("SENSOR_READ_ATTEMPTS", 5)
-    binary_labels_swapped: bool = _env_bool("BINARY_LABELS_SWAPPED", False)
+    prediction_confidence_threshold: float = _env_float(
+        "PREDICTION_CONFIDENCE_THRESHOLD",
+        0.60,
+    )
+    rolling_window_size: int = _env_int("ROLLING_WINDOW_SIZE", 5)
+    fault_votes_required: int = _env_int("FAULT_VOTES_REQUIRED", 3)
+    max_safe_current: float | None = field(
+        default_factory=lambda: _env_optional_float("MAX_SAFE_CURRENT")
+    )
     sensor_read_fallback_enabled: bool = _env_bool(
         "SENSOR_READ_FALLBACK_ENABLED",
         False,

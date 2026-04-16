@@ -4,31 +4,41 @@ This repository contains deployment code for a 3-phase induction motor fault det
 
 ## 1. Project Overview
 
-This project uses three phase-current measurements from a 3-phase induction motor:
+This project uses three RMS current measurements from a 3-phase induction motor:
 
 - `I1`
 - `I2`
 - `I3`
 
-From those three values, the system generates the same 8 features used during training:
+From those three RMS values, the V2 system generates the richer 16-feature vector used during training:
 
-1. `I1`
-2. `I2`
-3. `I3`
+1. `I1_rms`
+2. `I2_rms`
+3. `I3_rms`
 4. `I1 + I2 + I3`
-5. `max(abs(I1), abs(I2), abs(I3))`
-6. `min(abs(I1), abs(I2), abs(I3))`
-7. `max(abs currents) - min(abs currents)`
-8. `std(I1, I2, I3)`
+5. `mean(I1_rms, I2_rms, I3_rms)`
+6. `max(abs currents)`
+7. `min(abs currents)`
+8. `max(abs currents) - min(abs currents)`
+9. `std(I1_rms, I2_rms, I3_rms)`
+10. `imbalance_percent`
+11. `I1_to_mean`
+12. `I2_to_mean`
+13. `I3_to_mean`
+14. `I1_minus_I2`
+15. `I2_minus_I3`
+16. `I3_minus_I1`
 
-These 8 features are passed into the saved scaler and models already present in this repository.
+These features are passed into the V2 scaler and models in `trained_models_v2/`.
 
 The deployed system predicts:
 
 - `binary`: Healthy or Faulty
-- `severity`: Healthy / `1u` / `3u` / `5u`
-- `phase`: Healthy / Phase 1 / Phase 2 / Phase 3
+- `severity`: `1u` / `3u` / `5u` when the motor is predicted faulty
+- `phase`: Phase 1 / Phase 2 / Phase 3 when the motor is predicted faulty
 - `load`: No Load / Half Load / Full Load
+
+The live deployment path uses the rolling decision helper from the V2 notebook, not the older one-shot direct prediction path.
 
 Important: the models are already trained. This deployment setup improves the inference and hardware-integration side only.
 
@@ -36,8 +46,7 @@ Important: the models are already trained. This deployment setup improves the in
 
 Key files:
 
-- `model_binary.joblib`, `model_severity.joblib`, `model_phase.joblib`, `model_load.joblib`
-- `scaler.joblib`
+- `trained_models_v2/`
 - `motor_fault/`
 - `motor_monitor.py`
 - `test_sensors.py`
@@ -236,14 +245,6 @@ Use these for:
 
 Normally keep `BAUD_RATE=9600` unless your hardware requires something else.
 
-If your deployed binary model appears inverted relative to what you observe on the motor, you can flip only the displayed binary labels with:
-
-```bash
-BINARY_LABELS_SWAPPED=true
-```
-
-This changes the shown `Healthy`/`Faulty` text but does not alter the raw model class IDs.
-
 #### Sample timing
 
 ```bash
@@ -253,6 +254,22 @@ SAMPLE_INTERVAL=1
 This is how often the monitor performs one inference cycle for live on-screen monitoring.
 
 If you later enable ThingSpeak, you can increase this value to reduce upload frequency.
+
+#### Rolling decision settings
+
+```bash
+PREDICTION_CONFIDENCE_THRESHOLD=0.60
+ROLLING_WINDOW_SIZE=5
+FAULT_VOTES_REQUIRED=3
+MAX_SAFE_CURRENT=
+```
+
+Use these for:
+
+- minimum confidence before the binary result is treated as decisive
+- rolling history length
+- number of recent `Faulty` votes required to promote the rolling decision to `Faulty`
+- optional immediate overcurrent cutoff
 
 #### Serial port variables
 
@@ -323,10 +340,11 @@ You should see:
 The code automatically searches:
 
 1. `MODEL_DIR` if you set it
-2. `trained_models/`
-3. repository root
+2. `trained_models_v2/`
+3. `trained_models/`
+4. repository root
 
-So with the current repository structure, no model move is required.
+So with the current repository structure, the V2 models are used automatically.
 
 ### Step 13: Run a Pure Software Inference Test First
 
@@ -336,7 +354,7 @@ Before testing sensors, verify that Python, scaler, and model loading all work:
 python motor_monitor.py predict --i1 -2.23046875 --i2 0.51171875 --i3 1.58984375
 ```
 
-This should print JSON with all four prediction tasks.
+This should print the raw task outputs together with the confidence-aware current prediction summary.
 
 If this step fails, do not move to hardware testing yet. Fix the Python environment first.
 
@@ -416,9 +434,10 @@ python motor_monitor.py run --once
 This performs:
 
 1. sensor read
-2. feature generation
-3. model inference
-4. optional ThingSpeak upload
+2. V2 RMS feature generation
+3. confidence-aware model inference
+4. rolling decision update
+5. optional ThingSpeak upload
 
 What to verify:
 
@@ -438,7 +457,8 @@ python motor_monitor.py --interval 1
 This starts the continuous loop and prints each cycle on screen as:
 
 - the three sensor currents
-- the four model prediction labels
+- the current V2 prediction
+- the rolling decision summary and vote counts
 
 If you omit `--interval`, the app uses `SAMPLE_INTERVAL` from `.env`.
 
