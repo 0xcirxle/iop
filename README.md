@@ -42,6 +42,7 @@ Key files:
 - `motor_fault/`
 - `motor_monitor.py`
 - `test_sensors.py`
+- `capture_currents.py`
 - `.env.example`
 - `requirements.txt`
 - `requirements-rpi.txt`
@@ -236,8 +237,24 @@ SAMPLE_INTERVAL=1
 ```
 
 This is how often the monitor performs one inference cycle for live on-screen monitoring.
+The same interval is also used by the CSV capture script.
 
 If you later enable ThingSpeak, you can increase this value to reduce upload frequency.
+
+#### CSV capture output
+
+```bash
+CAPTURE_FILE_NAME=Noload_healthy.csv
+```
+
+Use this to switch between capture cases.
+For example, later you can change it manually to names like:
+
+- `Noload_healthy.csv`
+- `Noload_5pct.csv`
+- `Noload_10pct.csv`
+
+If you keep it as a relative filename, the capture script writes the CSV in the folder where you run it.
 
 #### Model path
 
@@ -393,6 +410,39 @@ If only one sensor works:
 - confirm the sensor still streams plain ASCII numeric values
 
 Only proceed to model inference after all three currents can be read reliably.
+
+### Step 16: Capture a Healthy No-Load CSV
+
+Once the three sensors are stable, you can capture timestamped current readings directly to CSV.
+
+Make sure `.env` contains:
+
+```bash
+CAPTURE_FILE_NAME=Noload_healthy.csv
+```
+
+Then run:
+
+```bash
+python capture_currents.py
+```
+
+This will keep writing rows like:
+
+- sample index
+- unix timestamp
+- ISO timestamp
+- `I1`
+- `I2`
+- `I3`
+
+Press `Ctrl+C` when you want to stop the recording.
+
+If you want a short capture for testing, run:
+
+```bash
+python capture_currents.py --samples 10
+```
 
 ### Step 17: Run One Full Inference Cycle
 
@@ -557,6 +607,12 @@ Raw sensor test:
 
 ```bash
 python test_sensors.py
+```
+
+CSV capture:
+
+```bash
+python capture_currents.py
 ```
 
 Run one full cycle:

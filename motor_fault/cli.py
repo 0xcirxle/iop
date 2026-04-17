@@ -11,6 +11,7 @@ from dataclasses import replace
 from motor_fault_model import BUFFER_N
 
 from .app import MonitorConfigurationError, MotorFaultMonitor, configure_logging
+from .capture import CaptureConfigurationError, CurrentCsvCapture, format_captured_row
 from .config import AppConfig
 from .predictor import MotorFaultPredictor
 from .sensors import SensorReadError, build_sensor_reader, parse_sensor_value
@@ -151,6 +152,41 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_capture_csv(args: argparse.Namespace) -> int:
+    config = AppConfig()
+    if args.interval is not None:
+        config = replace(config, sample_interval=args.interval)
+
+    try:
+        capture = CurrentCsvCapture(config)
+    except CaptureConfigurationError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    capture.open()
+    print(f"Writing CSV capture to {capture.output_path}", file=sys.stderr)
+    try:
+        remaining = args.samples
+        while remaining is None or remaining > 0:
+            try:
+                row = capture.capture_once()
+            except SensorReadError as exc:
+                print(f"Capture failed: {exc}", file=sys.stderr)
+                return 1
+            print(format_captured_row(row, capture.output_path), flush=True)
+            if remaining is not None:
+                remaining -= 1
+                if remaining == 0:
+                    break
+            time.sleep(config.sample_interval)
+    except KeyboardInterrupt:
+        print("\nStopped CSV capture.", file=sys.stderr)
+        return 0
+    finally:
+        capture.close()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Motor fault monitor and sensor tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -197,6 +233,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--verbose", action="store_true")
     run.set_defaults(func=_cmd_run)
+
+    capture_csv = subparsers.add_parser(
+        "capture-csv",
+        help="Continuously save timestamped current readings to a CSV file",
+    )
+    capture_csv.add_argument(
+        "--samples",
+        type=int,
+        help="Optional number of rows to capture before exiting",
+    )
+    capture_csv.add_argument(
+        "--interval",
+        type=float,
+        help="Override the capture interval in seconds for this run",
+    )
+    capture_csv.set_defaults(func=_cmd_capture_csv)
     return parser
 
 

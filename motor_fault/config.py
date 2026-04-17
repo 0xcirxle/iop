@@ -97,6 +97,7 @@ class AppConfig:
     sample_interval: float = _env_float("SAMPLE_INTERVAL", 1.0)
     warmup_seconds: float = _env_float("SENSOR_WARMUP_SECONDS", 0.1)
     read_attempts: int = _env_int("SENSOR_READ_ATTEMPTS", 5)
+    capture_file_name: str = os.getenv("CAPTURE_FILE_NAME", "Noload_healthy.csv")
     rolling_buffer_size: int = BUFFER_N
     prediction_confidence_threshold: float = _env_float(
         "PREDICTION_CONFIDENCE_THRESHOLD",
@@ -130,6 +131,13 @@ class AppConfig:
     @property
     def model_dir(self) -> Path:
         return self.model_path.parent
+
+    @property
+    def capture_file_path(self) -> Path:
+        path = Path(self.capture_file_name).expanduser()
+        if path.is_absolute():
+            return path
+        return Path.cwd() / path
 
     def missing_sensor_names(
         self,
