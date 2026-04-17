@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Tuple
 
+from motor_fault_model import BUFFER_N
+
 
 DEFAULT_SENSOR_PORTS = {
     "I1": "/dev/serial0",
@@ -76,18 +78,16 @@ def _build_sensor_ports() -> Dict[str, str]:
     return ports
 
 
-def _detect_model_dir() -> Path:
+def _detect_model_path() -> Path:
     root = Path(__file__).resolve().parent.parent
     candidates = (
-        Path(os.getenv("MODEL_DIR", "")) if os.getenv("MODEL_DIR") else None,
-        root / "trained_models_v2",
-        root / "trained_models",
-        root,
+        Path(os.getenv("MODEL_PATH", "")) if os.getenv("MODEL_PATH") else None,
+        root / "motor_fault_model" / "model.joblib",
     )
     for candidate in candidates:
-        if candidate and (candidate / "scaler.joblib").exists():
+        if candidate and candidate.exists():
             return candidate
-    return root
+    return root / "motor_fault_model" / "model.joblib"
 
 
 @dataclass(frozen=True)
@@ -97,6 +97,7 @@ class AppConfig:
     sample_interval: float = _env_float("SAMPLE_INTERVAL", 1.0)
     warmup_seconds: float = _env_float("SENSOR_WARMUP_SECONDS", 0.1)
     read_attempts: int = _env_int("SENSOR_READ_ATTEMPTS", 5)
+    rolling_buffer_size: int = BUFFER_N
     prediction_confidence_threshold: float = _env_float(
         "PREDICTION_CONFIDENCE_THRESHOLD",
         0.60,
@@ -112,7 +113,7 @@ class AppConfig:
     )
     sensor_read_fallback_value: float = _env_float("SENSOR_READ_FALLBACK_VALUE", 0.0)
     sensor_ports: Dict[str, str] = field(default_factory=_build_sensor_ports)
-    model_dir: Path = field(default_factory=_detect_model_dir)
+    model_path: Path = field(default_factory=_detect_model_path)
     thingspeak_api_key: str = os.getenv(
         "THINGSPEAK_API_KEY",
         "REPLACE_WITH_YOUR_THINGSPEAK_WRITE_API_KEY",
@@ -125,6 +126,10 @@ class AppConfig:
 
     def ordered_sensor_names(self) -> Tuple[str, ...]:
         return tuple(name for name in SENSOR_ORDER if name in self.sensor_ports)
+
+    @property
+    def model_dir(self) -> Path:
+        return self.model_path.parent
 
     def missing_sensor_names(
         self,

@@ -1,6 +1,6 @@
 # Motor Fault Predictions
 
-This repository contains deployment code for a 3-phase induction motor fault detection system built around the already-trained XGBoost models in this repo.
+This repository contains deployment code for a 3-phase induction motor fault detection system built around the newer threshold-based rolling model integrated from `iop-ml-model`.
 
 ## 1. Project Overview
 
@@ -10,43 +10,35 @@ This project uses three RMS current measurements from a 3-phase induction motor:
 - `I2`
 - `I3`
 
-From those three RMS values, the V2 system generates the richer 16-feature vector used during training:
+The live model expects one RMS triple per cycle:
 
-1. `I1_rms`
-2. `I2_rms`
-3. `I3_rms`
-4. `I1 + I2 + I3`
-5. `mean(I1_rms, I2_rms, I3_rms)`
-6. `max(abs currents)`
-7. `min(abs currents)`
-8. `max(abs currents) - min(abs currents)`
-9. `std(I1_rms, I2_rms, I3_rms)`
-10. `imbalance_percent`
-11. `I1_to_mean`
-12. `I2_to_mean`
-13. `I3_to_mean`
-14. `I1_minus_I2`
-15. `I2_minus_I3`
-16. `I3_minus_I1`
+- `I1`
+- `I2`
+- `I3`
 
-These features are passed into the V2 scaler and models in `trained_models_v2/`.
+It then applies the same rolling pipeline used in `iop-ml-model`:
 
-The deployed system predicts:
+1. compute 6 base RMS features from the incoming triple
+2. append the triple to a rolling buffer of the last `128` valid samples
+3. summarize that buffer into the fixed 38-feature window vector
+4. run the threshold classifier on `imbalance.mean` and `neg_seq_proxy.mean`
 
-- `binary`: Healthy or Faulty
-- `severity`: `1u` / `3u` / `5u` when the motor is predicted faulty
-- `phase`: Phase 1 / Phase 2 / Phase 3 when the motor is predicted faulty
-- `load`: No Load / Half Load / Full Load
+The deployed system is now intentionally binary and no-load-only:
 
-The live deployment path uses the rolling decision helper from the V2 notebook, not the older one-shot direct prediction path.
+- `Healthy`
+- `Faulty`
 
-Important: the models are already trained. This deployment setup improves the inference and hardware-integration side only.
+Important behavior:
+
+- the model returns `warmup` until 128 valid RMS triples have been buffered
+- the model returns `motor_off` and clears the rolling buffer when mean current drops below `0.05 A`
+- once warmup is complete, the monitor prints `Healthy` or `Faulty` together with `p_fault`
 
 ## 2. What Is In This Repository
 
 Key files:
 
-- `trained_models_v2/`
+- `motor_fault_model/`
 - `motor_fault/`
 - `motor_monitor.py`
 - `test_sensors.py`
@@ -203,15 +195,7 @@ pip install --upgrade pip
 pip install -r requirements-rpi.txt
 ```
 
-This installs:
-
-- `numpy`
-- `joblib`
-- `xgboost`
-- `scikit-learn`
-- `requests`
-- `pyserial`
-- `pytest`
+This installs the runtime dependencies needed for the threshold model, serial input, and tests.
 
 ### Step 9: Create Your Deployment Variables File
 
@@ -255,21 +239,17 @@ This is how often the monitor performs one inference cycle for live on-screen mo
 
 If you later enable ThingSpeak, you can increase this value to reduce upload frequency.
 
-#### Rolling decision settings
+#### Model path
 
 ```bash
-PREDICTION_CONFIDENCE_THRESHOLD=0.60
-ROLLING_WINDOW_SIZE=5
-FAULT_VOTES_REQUIRED=3
-MAX_SAFE_CURRENT=
+MODEL_PATH=
 ```
 
-Use these for:
+Leave `MODEL_PATH` empty to use the integrated default:
 
-- minimum confidence before the binary result is treated as decisive
-- rolling history length
-- number of recent `Faulty` votes required to promote the rolling decision to `Faulty`
-- optional immediate overcurrent cutoff
+- `motor_fault_model/model.joblib`
+
+Set it only if you want to override the bundled model artifact.
 
 #### Serial port variables
 
@@ -331,30 +311,21 @@ ls
 
 You should see:
 
-- `scaler.joblib`
-- `model_binary.joblib`
-- `model_severity.joblib`
-- `model_phase.joblib`
-- `model_load.joblib`
+- `motor_fault_model/model.joblib`
+- `motor_fault_model/metrics.json`
 
-The code automatically searches:
-
-1. `MODEL_DIR` if you set it
-2. `trained_models_v2/`
-3. `trained_models/`
-4. repository root
-
-So with the current repository structure, the V2 models are used automatically.
+The code automatically uses `MODEL_PATH` when you set it. Otherwise it loads the bundled
+`motor_fault_model/model.joblib`.
 
 ### Step 13: Run a Pure Software Inference Test First
 
-Before testing sensors, verify that Python, scaler, and model loading all work:
+Before testing sensors, verify that Python and the integrated rolling model load correctly:
 
 ```bash
-python motor_monitor.py predict --i1 -2.23046875 --i2 0.51171875 --i3 1.58984375
+python motor_monitor.py predict --i1 1.47 --i2 1.46 --i3 1.48
 ```
 
-This should print the raw task outputs together with the confidence-aware current prediction summary.
+This replays the same RMS triple into a fresh rolling inferencer 128 times so you can confirm the bundled model loads and produces a final binary output.
 
 If this step fails, do not move to hardware testing yet. Fix the Python environment first.
 
@@ -434,15 +405,14 @@ python motor_monitor.py run --once
 This performs:
 
 1. sensor read
-2. V2 RMS feature generation
-3. confidence-aware model inference
-4. rolling decision update
-5. optional ThingSpeak upload
+2. rolling RMS feature update
+3. threshold-model inference
+4. optional ThingSpeak upload
 
 What to verify:
 
 - all three currents appear in output
-- all prediction tasks are present
+- you see either `warmup`, `motor_off`, or a final `Healthy` / `Faulty` result
 - no serial read exception occurs
 - no model loading exception occurs
 
@@ -457,8 +427,8 @@ python motor_monitor.py --interval 1
 This starts the continuous loop and prints each cycle on screen as:
 
 - the three sensor currents
-- the current V2 prediction
-- the rolling decision summary and vote counts
+- the current rolling-model state
+- the live binary prediction and `p_fault` once warmup completes
 
 If you omit `--interval`, the app uses `SAMPLE_INTERVAL` from `.env`.
 
@@ -500,8 +470,8 @@ pytest -q
 
 These tests validate:
 
-- feature engineering
-- model loading
+- rolling feature extraction
+- model loading and warmup behavior
 - sensor value parsing
 - ThingSpeak payload formatting
 
@@ -535,7 +505,7 @@ Do not change phase naming between:
 - the variable names
 - the interpretation of predictions
 
-If you accidentally swap `I1`, `I2`, and `I3`, the model may still produce outputs, but the predicted faulty phase could be misleading relative to the actual motor phase.
+If you accidentally swap `I1`, `I2`, and `I3`, the model will still produce outputs, but the balance-related features will no longer reflect the real motor phases.
 
 ### Validate with healthy condition first
 
@@ -559,12 +529,7 @@ Then enable cloud upload.
 
 ### Saved model compatibility
 
-The local validation was done successfully with:
-
-- `xgboost==2.0.3`
-- `scikit-learn==1.6.1`
-
-These versions are pinned in the requirements files for that reason.
+The integrated model artifact is a tiny `joblib` payload containing the threshold classifier and fixed feature order from `iop-ml-model`.
 
 ## 8. Useful Commands
 
@@ -585,7 +550,7 @@ set +a
 Software-only prediction:
 
 ```bash
-python motor_monitor.py predict --i1 -2.23046875 --i2 0.51171875 --i3 1.58984375
+python motor_monitor.py predict --i1 1.47 --i2 1.46 --i3 1.48
 ```
 
 Raw sensor test:

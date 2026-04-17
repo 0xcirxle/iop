@@ -8,6 +8,8 @@ import sys
 import time
 from dataclasses import replace
 
+from motor_fault_model import BUFFER_N
+
 from .app import MonitorConfigurationError, MotorFaultMonitor, configure_logging
 from .config import AppConfig
 from .predictor import MotorFaultPredictor
@@ -17,28 +19,22 @@ from .sensors import SensorReadError, build_sensor_reader, parse_sensor_value
 def _cmd_predict(args: argparse.Namespace) -> int:
     config = AppConfig()
     predictor = MotorFaultPredictor(
-        config.model_dir,
-        confidence_threshold=config.prediction_confidence_threshold,
-        max_safe_current=config.max_safe_current,
+        config.model_path,
+        buffer_n=config.rolling_buffer_size,
     )
-    results = predictor.predict(args.i1, args.i2, args.i3)
-    current_prediction = predictor.summarize_prediction(results, args.i1, args.i2, args.i3)
+    current_prediction = None
+    for _ in range(args.repeats):
+        current_prediction = predictor.update(args.i1, args.i2, args.i3)
+    if current_prediction is None:
+        raise ValueError("--repeats must be at least 1")
     payload = {
         "currents": {
             "I1": args.i1,
             "I2": args.i2,
             "I3": args.i3,
         },
-        "current_prediction": current_prediction,
-        "predictions": {
-            task: {
-                "class_id": result.class_id,
-                "label": result.label,
-                "confidence": result.confidence,
-                "probabilities": result.probabilities,
-            }
-            for task, result in results.items()
-        },
+        "repeats_used": args.repeats,
+        "prediction": current_prediction.as_dict(),
     }
     print(json.dumps(payload, indent=2, ensure_ascii=True))
     return 0
@@ -159,10 +155,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Motor fault monitor and sensor tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    predict = subparsers.add_parser("predict", help="Run V2 inference on 3 RMS currents")
+    predict = subparsers.add_parser(
+        "predict",
+        help="Replay one RMS triple into the rolling threshold model for debugging",
+    )
     predict.add_argument("--i1", required=True, type=float)
     predict.add_argument("--i2", required=True, type=float)
     predict.add_argument("--i3", required=True, type=float)
+    predict.add_argument(
+        "--repeats",
+        default=BUFFER_N,
+        type=int,
+        help="How many times to feed the same RMS triple into a fresh inferencer",
+    )
     predict.set_defaults(func=_cmd_predict)
 
     test_sensors = subparsers.add_parser(

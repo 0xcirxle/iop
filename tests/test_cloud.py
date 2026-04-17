@@ -23,15 +23,19 @@ def test_thingspeak_payload_shape():
         min_interval_seconds=0.0,
         request_get=fake_get,
     )
-    predictions = {
-        "binary": PredictionResult("binary", 1, "Faulty", {0: 0.1, 1: 0.9}),
-        "severity": PredictionResult("severity", 2, "3u", {2: 0.8}),
-        "phase": PredictionResult("phase", 3, "Phase 3", {3: 0.7}),
-        "load": PredictionResult("load", 1, "Half Load", {1: 0.95}),
-    }
+    prediction = PredictionResult(
+        label_id=1,
+        label="Faulty",
+        proba_fault=0.9123,
+        ready=True,
+        reason=None,
+        buffer_fill=128,
+        buffer_size=128,
+    )
 
-    ok = uploader.upload({"I1": 1.0, "I2": 2.0, "I3": 3.0}, predictions)
+    ok = uploader.upload({"I1": 1.0, "I2": 2.0, "I3": 3.0}, prediction)
 
     assert ok is True
     assert captured["params"]["field1"] == "1.000"
-    assert captured["params"]["field7"] == 1
+    assert captured["params"]["field5"] == "0.912"
+    assert captured["params"]["field7"] == 128

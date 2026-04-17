@@ -9,7 +9,7 @@ from typing import Dict, Optional
 
 from .cloud import ThingSpeakUploader
 from .config import AppConfig
-from .predictor import MotorFaultPredictor, PredictionResult, RollingMotorDecision
+from .predictor import MotorFaultPredictor, PredictionResult
 from .sensors import CurrentSample, SensorReadError, build_sensor_reader
 
 
@@ -29,7 +29,7 @@ class MonitorConfigurationError(RuntimeError):
 
 
 class MotorFaultMonitor:
-    """Coordinates sensors, model inference, and optional cloud upload."""
+    """Coordinates sensors, rolling model inference, and optional cloud upload."""
 
     def __init__(self, config: AppConfig):
         self.config = config
@@ -42,13 +42,8 @@ class MotorFaultMonitor:
             )
         self.reader = build_sensor_reader(config)
         self.predictor = MotorFaultPredictor(
-            config.model_dir,
-            confidence_threshold=config.prediction_confidence_threshold,
-            max_safe_current=config.max_safe_current,
-        )
-        self.rolling_decision = RollingMotorDecision(
-            window_size=config.rolling_window_size,
-            fault_votes_required=config.fault_votes_required,
+            config.model_path,
+            buffer_n=config.rolling_buffer_size,
         )
         self.uploader: Optional[ThingSpeakUploader] = None
         if config.thingspeak_enabled:
@@ -58,7 +53,7 @@ class MotorFaultMonitor:
             )
 
     def open(self) -> None:
-        LOGGER.info("Using model directory: %s", self.config.model_dir)
+        LOGGER.info("Using model path: %s", self.config.model_path)
         self.reader.open()
 
     def close(self) -> None:
@@ -66,26 +61,14 @@ class MotorFaultMonitor:
 
     def run_once(self) -> Dict[str, object]:
         sample = self.reader.read_currents()
-        predictions = self.predictor.predict(
+        prediction = self.predictor.update(
             sample.currents["I1"],
             sample.currents["I2"],
             sample.currents["I3"],
         )
-        current_prediction = self.predictor.summarize_prediction(
-            predictions,
-            sample.currents["I1"],
-            sample.currents["I2"],
-            sample.currents["I3"],
-        )
-        rolling_result = self.rolling_decision.update(current_prediction)
-        payload = self._build_payload(
-            sample,
-            predictions,
-            rolling_result["current_prediction"],
-            rolling_result["rolling_decision"],
-        )
+        payload = self._build_payload(sample, prediction)
         if self.uploader is not None:
-            uploaded = self.uploader.upload(sample.currents, predictions)
+            uploaded = self.uploader.upload(sample.currents, prediction)
             payload["thingspeak_uploaded"] = uploaded
         return payload
 
@@ -105,24 +88,12 @@ class MotorFaultMonitor:
     @staticmethod
     def _build_payload(
         sample: CurrentSample,
-        predictions: Dict[str, PredictionResult],
-        current_prediction: Dict[str, object],
-        rolling_decision: Dict[str, object],
+        prediction: PredictionResult,
     ) -> Dict[str, object]:
         return {
             "timestamp": sample.timestamp,
             "currents": sample.currents,
-            "current_prediction": current_prediction,
-            "rolling_decision": rolling_decision,
-            "predictions": {
-                task: {
-                    "class_id": result.class_id,
-                    "label": result.label,
-                    "confidence": result.confidence,
-                    "probabilities": result.probabilities,
-                }
-                for task, result in predictions.items()
-            },
+            "prediction": prediction.as_dict(),
         }
 
 
@@ -133,39 +104,24 @@ def format_monitor_result(payload: Dict[str, object]) -> str:
         for name in REQUIRED_PREDICTION_SENSORS
         if name in currents
     )
-    current_prediction = payload["current_prediction"]
-    rolling_decision = payload["rolling_decision"]
+    prediction = payload["prediction"]
+
+    return f"currents: {current_text} | prediction: {format_prediction_summary(prediction)}"
+
+
+def format_prediction_summary(prediction: Dict[str, object]) -> str:
+    if not prediction.get("ready"):
+        reason = prediction.get("reason")
+        if reason == "warmup":
+            return (
+                f"warmup [{int(prediction.get('buffer_fill', 0))}/"
+                f"{int(prediction.get('buffer_size', 0))}]"
+            )
+        if reason == "motor_off":
+            return "motor_off"
+        return str(reason or "not_ready")
 
     return (
-        f"currents: {current_text} | "
-        f"current: {format_prediction_summary(current_prediction)} | "
-        f"rolling: {format_prediction_summary(rolling_decision, include_votes=True)}"
+        f"{prediction['label']} "
+        f"p_fault={float(prediction['proba_fault']):.2f}"
     )
-
-
-def format_prediction_summary(
-    prediction: Dict[str, object],
-    *,
-    include_votes: bool = False,
-) -> str:
-    if prediction.get("safety_status") == "TRIP_IMMEDIATE_OVERCURRENT":
-        return "TRIP_IMMEDIATE_OVERCURRENT"
-
-    parts = [str(prediction["binary"])]
-    binary_confidence = prediction.get("binary_confidence")
-    if binary_confidence is not None and not include_votes:
-        parts[0] = f"{parts[0]}({float(binary_confidence):.2f})"
-
-    for key in ("severity", "phase", "load"):
-        value = prediction.get(key)
-        if value and value not in {"N/A", "Unknown", "Uncertain"}:
-            parts.append(str(value))
-
-    if include_votes:
-        parts.append(
-            f"[F={int(prediction.get('fault_votes', 0))} "
-            f"H={int(prediction.get('healthy_votes', 0))} "
-            f"W={int(prediction.get('window_filled', 0))}]"
-        )
-
-    return " ".join(parts)

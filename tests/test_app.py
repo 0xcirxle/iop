@@ -1,24 +1,32 @@
 from motor_fault.app import format_monitor_result, format_prediction_summary
 
 
-def test_format_prediction_summary_includes_votes_when_requested():
+def test_format_prediction_summary_handles_warmup_state():
     summary = format_prediction_summary(
         {
-            "binary": "Faulty",
-            "severity": "1u",
-            "phase": "Phase 2",
-            "load": "Full Load",
-            "fault_votes": 3,
-            "healthy_votes": 1,
-            "window_filled": 4,
-        },
-        include_votes=True,
+            "ready": False,
+            "reason": "warmup",
+            "buffer_fill": 7,
+            "buffer_size": 128,
+        }
     )
 
-    assert summary == "Faulty 1u Phase 2 Full Load [F=3 H=1 W=4]"
+    assert summary == "warmup [7/128]"
 
 
-def test_format_monitor_result_includes_current_and_rolling_predictions():
+def test_format_prediction_summary_handles_ready_state():
+    summary = format_prediction_summary(
+        {
+            "ready": True,
+            "label": "Faulty",
+            "proba_fault": 0.91,
+        }
+    )
+
+    assert summary == "Faulty p_fault=0.91"
+
+
+def test_format_monitor_result_includes_currents_and_prediction():
     payload = {
         "timestamp": 0.0,
         "currents": {
@@ -26,26 +34,14 @@ def test_format_monitor_result_includes_current_and_rolling_predictions():
             "I2": 1.4,
             "I3": 1.3,
         },
-        "current_prediction": {
-            "binary": "Faulty",
-            "binary_confidence": 0.91,
-            "severity": "1u",
-            "phase": "Phase 1",
-            "load": "Full Load",
-        },
-        "rolling_decision": {
-            "binary": "Faulty",
-            "severity": "1u",
-            "phase": "Phase 1",
-            "load": "Full Load",
-            "fault_votes": 3,
-            "healthy_votes": 0,
-            "window_filled": 3,
+        "prediction": {
+            "ready": True,
+            "label": "Healthy",
+            "proba_fault": 0.02,
         },
     }
 
     assert format_monitor_result(payload) == (
         "currents: I1=1.500 I2=1.400 I3=1.300 | "
-        "current: Faulty(0.91) 1u Phase 1 Full Load | "
-        "rolling: Faulty 1u Phase 1 Full Load [F=3 H=0 W=3]"
+        "prediction: Healthy p_fault=0.02"
     )

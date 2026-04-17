@@ -1,52 +1,50 @@
 from pathlib import Path
 
-from motor_fault.predictor import MotorFaultPredictor, RollingMotorDecision
+from motor_fault.predictor import MotorFaultPredictor
 
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "trained_models_v2"
+MODEL_PATH = Path(__file__).resolve().parent.parent / "motor_fault_model" / "model.joblib"
 
 
-def test_saved_models_can_run_inference():
-    predictor = MotorFaultPredictor(MODEL_DIR)
-    results = predictor.predict(1.456810, 1.428707, 1.404529)
+def test_predictor_reports_warmup_before_buffer_fills():
+    predictor = MotorFaultPredictor(MODEL_PATH)
 
-    assert set(results) == {"binary", "severity", "phase", "load"}
-    assert results["binary"].label in {"Healthy", "Faulty"}
-    for result in results.values():
-        assert isinstance(result.class_id, int)
-        assert result.probabilities
-        assert result.confidence is not None
+    result = predictor.update(1.47, 1.46, 1.48)
 
-
-def test_predict_live_hides_fault_details_for_healthy_binary_result():
-    predictor = MotorFaultPredictor(MODEL_DIR)
-    results = predictor.predict(0.0, 0.0, 0.0)
-    summary = predictor.summarize_prediction(results, 0.0, 0.0, 0.0)
-
-    assert summary["binary"] in {"Healthy", "Faulty", "Uncertain"}
-    if summary["binary"] == "Healthy":
-        assert summary["severity"] == "N/A"
-        assert summary["phase"] == "N/A"
+    assert result.ready is False
+    assert result.reason == "warmup"
+    assert result.buffer_fill == 1
+    assert result.buffer_size == 128
+    assert result.label is None
+    assert result.proba_fault is None
 
 
-def test_rolling_decision_promotes_fault_after_enough_votes():
-    rolling = RollingMotorDecision(window_size=5, fault_votes_required=3)
-    faulty_prediction = {
-        "safety_status": "OK",
-        "binary": "Faulty",
-        "binary_confidence": 0.9,
-        "severity": "1u",
-        "severity_confidence": 0.8,
-        "phase": "Phase 1",
-        "phase_confidence": 0.8,
-        "load": "Full Load",
-        "load_confidence": 0.9,
-    }
+def test_predictor_emits_ready_result_after_rolling_buffer_fills():
+    predictor = MotorFaultPredictor(MODEL_PATH)
 
-    rolling.update(faulty_prediction)
-    rolling.update(faulty_prediction)
-    result = rolling.update(faulty_prediction)
+    result = None
+    for _ in range(128):
+        result = predictor.update(1.47, 1.46, 1.48)
 
-    assert result["rolling_decision"]["binary"] == "Faulty"
-    assert result["rolling_decision"]["severity"] == "1u"
-    assert result["rolling_decision"]["phase"] == "Phase 1"
+    assert result is not None
+    assert result.ready is True
+    assert result.reason is None
+    assert result.label in {"Healthy", "Faulty"}
+    assert 0.0 <= float(result.proba_fault) <= 1.0
+
+
+def test_motor_off_clears_the_warmup_buffer():
+    predictor = MotorFaultPredictor(MODEL_PATH)
+
+    for _ in range(8):
+        predictor.update(1.47, 1.46, 1.48)
+
+    motor_off = predictor.update(0.0, 0.0, 0.0)
+    next_result = predictor.update(1.47, 1.46, 1.48)
+
+    assert motor_off.ready is False
+    assert motor_off.reason == "motor_off"
+    assert motor_off.buffer_fill == 0
+    assert next_result.ready is False
+    assert next_result.reason == "warmup"
+    assert next_result.buffer_fill == 1

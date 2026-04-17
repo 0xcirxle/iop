@@ -29,7 +29,7 @@ class ThingSpeakUploader:
     def upload(
         self,
         currents: Dict[str, float],
-        predictions: Dict[str, PredictionResult],
+        prediction: PredictionResult,
     ) -> bool:
         if not self.api_key or self.api_key.startswith("REPLACE_WITH_"):
             return False
@@ -44,10 +44,10 @@ class ThingSpeakUploader:
             "field1": f"{currents['I1']:.3f}",
             "field2": f"{currents['I2']:.3f}",
             "field3": f"{currents['I3']:.3f}",
-            "field4": predictions["binary"].class_id,
-            "field5": predictions["severity"].class_id,
-            "field6": predictions["phase"].class_id,
-            "field7": predictions["load"].class_id,
+            "field4": "" if prediction.label_id is None else prediction.label_id,
+            "field5": "" if prediction.proba_fault is None else f"{prediction.proba_fault:.3f}",
+            "field6": prediction.buffer_fill,
+            "field7": prediction.buffer_size,
         }
         response = self.request_get(self.url, params=payload, timeout=10)
         self._last_upload = time.time()
