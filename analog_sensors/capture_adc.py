@@ -39,7 +39,22 @@ from dataclasses import dataclass
 import RPi.GPIO as GPIO
 import spidev
 
+# Load .env from the same directory as this script
+def _load_dotenv():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.isfile(env_path):
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
 
+_load_dotenv()
 # ---------------------------------------------------------------------------
 # ADS1256 register / command constants (datasheet pp.30-35)
 # ---------------------------------------------------------------------------
