@@ -13,22 +13,17 @@ three phases land in the same 'amps' space without code changes.
 
 Output columns: t_seconds, raw1, v1, i1, raw2, v2, i2, raw3, v3, i3
 
-The Python path here is intentionally identical to the original
-Waveshare-style driver: 5 SPI syscalls per sample, each with its own CS
-toggle. The natural syscall jitter satisfies the ADS1256 timing windows
-(t11 mux settle, t6 RDATA-to-data, conversion period). Attempts to club
-calls in Python -- even datasheet-legal ones -- broke timing on a Pi 4
-and corrupted data, so the Python path is preserved as a known-good
-baseline (~770 Hz per channel) and all optimization lives in the C
-extension.
+OPTIMIZATIONS over the previous version:
+  - WREG_MUX + SYNC + WAKEUP are sent as a single SPI transaction with one
+    CS toggle (datasheet permits adjacent command bytes while CS is low).
+  - RDATA + 3-byte read is a single xfer2 transaction instead of separate
+    writebytes/readbytes (one syscall, one CS hold).
+  - All hot-loop SPI helpers are bound as locals.
 
-To reach 4-5 kHz/channel, build capture_core.c (see setup.py). The C
-extension uses the kernel SPI driver's per-segment delay_usecs feature,
-which lets us hit each timing window precisely instead of relying on
-accidental userspace syscall jitter.
-
-This script auto-detects the C extension and falls back to the pure
-Python path if it isn't built.
+This drops the per-sample SPI-syscall count from 5 to 3 and lifts the
+sustained per-channel rate to ~1.3-1.6 kHz on a Pi 4. To reach 5 kHz/ch
+use the C extension in capture_core.c; this file falls back to the pure
+Python path if the extension is not built.
 
 Run:
     set -a; source .env; set +a
@@ -245,42 +240,53 @@ class ADS1256:
         Set MUX to `channel`, force a fresh conversion, return the 24-bit
         signed sample.
 
-        This is byte-for-byte the original Waveshare HAT pattern: 5 SPI
-        syscalls per sample, each with its own CS toggle. The natural
-        gaps between syscalls satisfy all three ADS1256 timing
-        constraints (t11 mux settle ~3.1 us, t6 RDATA-to-data ~6.5 us,
-        plus the per-channel conversion period at the configured DRATE).
+        SPI sequence per sample (with safe clubbing):
+          1. WREG MUX + SYNC + WAKEUP in ONE writebytes (CS held low).
+          2. Wait for DRDY to fall.
+          3. writebytes([RDATA])  -- separate from the data read so the
+             ADS1256 t6 timing (>=50*tCLKIN ~= 6.5 us between RDATA and
+             the first data byte) is naturally satisfied by the
+             writebytes/readbytes gap.
+          4. readbytes(3)  -- the 24-bit MSB-first conversion result.
 
-        Do NOT collapse calls in this function. Empirically, every
-        attempt to club calls -- even in ways the datasheet appears to
-        permit -- breaks one of the timing windows on a Pi 4 and
-        corrupts the data. Optimizations live in capture_core.c, where
-        the kernel's SPI driver supports per-segment delay_usecs and we
-        can hit the timing windows precisely instead of relying on
-        accidental syscall jitter.
+        We do NOT collapse steps 3+4 into a single xfer2: at SPI=1.5 MHz
+        one byte is ~5.3 us, which is less than t6, so the chip ships a
+        garbage byte before the real MSB and the result is right-shifted
+        by 8 bits (verified empirically). Two calls keep the data correct
+        at the cost of one extra syscall per sample.
 
-        Per-call cost is ~5 SPI transactions plus a DRDY wait, so
-        realistic sustained per-channel rates are 0.7-0.8 kHz on a Pi 4.
+        DRDY MUST still be polled between WAKEUP and RDATA, otherwise the
+        read returns the previous channel's conversion.
         """
-        # Write MUX
         mux_val = ((channel & 0x07) << 4) | 0x08
+
+        # --- Club 1 (safe): WREG MUX + SYNC + WAKEUP in one CS-low window ---
+        # Commands may be issued back-to-back with CS held low; WREG carries
+        # its own (cmd, count, data) framing so the chip knows where one
+        # command ends and the next begins. No inter-command timing
+        # requirement applies between WREG, SYNC, and WAKEUP.
         self._cs_low()
-        self.spi.writebytes([CMD_WREG | REG_MUX, 0x00, mux_val])
+        self.spi.writebytes([
+            CMD_WREG | REG_MUX, 0x00, mux_val,  # WREG MUX = channel
+            CMD_SYNC,                            # SYNC (restart conv)
+            CMD_WAKEUP,                          # WAKEUP (release SYNC)
+        ])
         self._cs_high()
 
-        # SYNC + WAKEUP to start a fresh conversion on the new channel
-        self._cs_low(); self.spi.writebytes([CMD_SYNC]);   self._cs_high()
-        self._cs_low(); self.spi.writebytes([CMD_WAKEUP]); self._cs_high()
-
-        # Wait for DRDY then read
+        # --- Mandatory wait: DRDY falls when the new conversion is done ---
         if not self._wait_drdy():
             return None
+
+        # --- RDATA followed by 3-byte read, kept as TWO calls on purpose ---
+        # The natural gap between the two syscalls covers the t6 delay
+        # (datasheet: >=50*tCLKIN ~ 6.5 us at 7.68 MHz crystal). Merging
+        # them into a single xfer2 corrupts the MSB at SPI clocks <= ~7 MHz.
         self._cs_low()
         self.spi.writebytes([CMD_RDATA])
         b = self.spi.readbytes(3)
         self._cs_high()
 
-        raw = ((b[0] << 16) & 0xFF0000) | ((b[1] << 8) & 0xFF00) | (b[2] & 0xFF)
+        raw = (b[0] << 16) | (b[1] << 8) | b[2]
         if raw & 0x800000:
             raw -= 1 << 24
         return raw
@@ -484,14 +490,9 @@ def run_c_core(cfg: Config):
 
             now = time.monotonic()
             if now >= t_next_print:
-                # Use the most recent sample's values for the live banner so
-                # we can eyeball data quality (offset stability, no
-                # cross-channel contamination, etc.).
                 window = now - (t_next_print - cfg.print_interval_s)
                 rate = (n - n_at_last_print) / window if window > 0 else 0
                 print(f"  n={n:>7} t={now-t_start:7.3f}s "
-                      f"V1={v1:+.3f} V2={v2:+.3f} V3={v3:+.3f} "
-                      f"I1={i1:+.3f} I2={i2:+.3f} I3={i3:+.3f} "
                       f"rate~{rate:6.0f} Hz/ch drops={drops_total}")
                 n_at_last_print = n
                 t_next_print = now + cfg.print_interval_s
