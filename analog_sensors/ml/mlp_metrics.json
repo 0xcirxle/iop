@@ -1,0 +1,150 @@
+{
+  "lolo": [
+    {
+      "name": "LOLO test=noload",
+      "accuracy": 0.75,
+      "f1": 0.8571428571428571,
+      "auc": 0.34183076807001656,
+      "cm": [
+        [
+          0,
+          188
+        ],
+        [
+          0,
+          564
+        ]
+      ],
+      "threshold": 0.9199999999999999,
+      "fit_seconds": 1.1198087920056423,
+      "per_mu": {
+        "healthy": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "1%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "3%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "5%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        }
+      }
+    },
+    {
+      "name": "LOLO test=halfload",
+      "accuracy": 0.75,
+      "f1": 0.8571428571428571,
+      "auc": 0.3898257129923042,
+      "cm": [
+        [
+          0,
+          188
+        ],
+        [
+          0,
+          564
+        ]
+      ],
+      "threshold": 0.5,
+      "fit_seconds": 1.0078294999984792,
+      "per_mu": {
+        "healthy": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "1%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "3%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "5%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        }
+      }
+    },
+    {
+      "name": "LOLO test=fullload",
+      "accuracy": 0.25,
+      "f1": 0.0,
+      "auc": 0.962879130828429,
+      "cm": [
+        [
+          188,
+          0
+        ],
+        [
+          564,
+          0
+        ]
+      ],
+      "threshold": 0.6699999999999999,
+      "fit_seconds": 1.0909233749989653,
+      "per_mu": {
+        "healthy": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        },
+        "1%": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        },
+        "3%": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        },
+        "5%": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        }
+      }
+    }
+  ],
+  "final": {
+    "name": "final MLP (in-sample, all files)",
+    "accuracy": 0.7828014184397163,
+    "f1": 0.8501529051987767,
+    "auc": 0.8406497828747715,
+    "cm": [
+      [
+        376,
+        188
+      ],
+      [
+        302,
+        1390
+      ]
+    ],
+    "threshold": 0.5,
+    "holdout_val_threshold": 0.5
+  },
+  "threshold": 0.5,
+  "n_params": 1473,
+  "tflite_mode": "dynamic_range",
+  "tflite_holdout_accuracy": 0.7865,
+  "inference_ms_per_window": 0.0010244180157314986,
+  "h5_kb": 48.3671875,
+  "tflite_kb": 7.8671875,
+  "total_train_seconds": 19.32068716599315
+}

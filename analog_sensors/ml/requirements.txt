@@ -1,0 +1,13 @@
+# Training-time deps (laptop / dev box).
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+scikit-learn>=1.3
+xgboost>=2.0
+tensorflow>=2.15
+
+# Pi-only runtime alternative to TensorFlow. On the Pi 4 the runtime needs
+# only `xgboost` + `tflite-runtime` — the trained .tflite is loaded directly,
+# and full TensorFlow is not required.
+#   pip install tflite-runtime
+# (or, on Bookworm: pip install --extra-index-url https://google-coral.github.io/py-repo/ tflite-runtime)
