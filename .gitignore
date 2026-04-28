@@ -2,3 +2,6 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+
+# Large training CSVs live outside the repo and are symlinked in.
+analog_sensors/training_data

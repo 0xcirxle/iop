@@ -1,0 +1,187 @@
+{
+  "lolo": [
+    {
+      "name": "LOLO test=noload",
+      "accuracy": 0.5,
+      "f1": 0.5,
+      "auc": 0.6879432624113475,
+      "cm": [
+        [
+          188,
+          0
+        ],
+        [
+          376,
+          188
+        ]
+      ],
+      "threshold": 0.95,
+      "per_mu": {
+        "healthy": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        },
+        "1%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "3%": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        },
+        "5%": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        }
+      }
+    },
+    {
+      "name": "LOLO test=halfload",
+      "accuracy": 0.75,
+      "f1": 0.8571428571428571,
+      "auc": 0.5,
+      "cm": [
+        [
+          0,
+          188
+        ],
+        [
+          0,
+          564
+        ]
+      ],
+      "threshold": 0.5,
+      "per_mu": {
+        "healthy": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "1%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "3%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        },
+        "5%": {
+          "n": 188,
+          "faulty_pred": 188,
+          "faulty_rate": 1.0
+        }
+      }
+    },
+    {
+      "name": "LOLO test=fullload",
+      "accuracy": 0.25,
+      "f1": 0.0,
+      "auc": 0.5,
+      "cm": [
+        [
+          188,
+          0
+        ],
+        [
+          564,
+          0
+        ]
+      ],
+      "threshold": 0.5,
+      "per_mu": {
+        "healthy": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        },
+        "1%": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        },
+        "3%": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        },
+        "5%": {
+          "n": 188,
+          "faulty_pred": 0,
+          "faulty_rate": 0.0
+        }
+      }
+    }
+  ],
+  "final": {
+    "name": "final XGB (in-sample, all files)",
+    "accuracy": 1.0,
+    "f1": 1.0,
+    "auc": 1.0,
+    "cm": [
+      [
+        564,
+        0
+      ],
+      [
+        0,
+        1692
+      ]
+    ],
+    "threshold": 0.5,
+    "holdout_val_threshold": 0.5
+  },
+  "threshold": 0.5,
+  "feature_extraction_ms_per_window": 1.021714750007959,
+  "predict_only_ms_per_window": 0.16635333202430047,
+  "model_kb": 129.26953125,
+  "n_features": 28,
+  "top_features": [
+    [
+      "park_mag_var",
+      32.904056549072266
+    ],
+    [
+      "rms_c",
+      32.607749938964844
+    ],
+    [
+      "h3_ratio_a",
+      31.664981842041016
+    ],
+    [
+      "h5_ratio_c",
+      30.316438674926758
+    ],
+    [
+      "pos_seq_mag",
+      25.518033981323242
+    ],
+    [
+      "park_ellipticity",
+      8.02914810180664
+    ],
+    [
+      "park_q_var",
+      5.8227009773254395
+    ],
+    [
+      "kurt_c",
+      5.607460021972656
+    ],
+    [
+      "zero_seq_rms",
+      3.154662847518921
+    ],
+    [
+      "skew_b",
+      2.5709967613220215
+    ]
+  ],
+  "total_train_seconds": 15.169631416996708
+}
